@@ -17,6 +17,17 @@ const Navigation = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("home");
 
+  // Lock background scroll while the mobile menu is open so the page
+  // behind doesn't scroll, and always restore it when the menu closes.
+  useEffect(() => {
+    if (!isMobileMenuOpen || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
   const handleScrollSpy = useCallback(() => {
     setIsScrolled(window.scrollY > 50);
 

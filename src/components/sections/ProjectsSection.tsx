@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { CardSpotlight } from "@/components/ui/card-spotlight";
 import { Button } from "@/components/ui/button";
 import { ScrollReveal, StaggerContainer, StaggerItem } from "@/components/ui/ScrollReveal";
@@ -83,6 +83,69 @@ const projects = [
   },
 ];
 
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * Video thumbnail that only decodes/plays while visible.
+ * Root cause of lag: every project video used autoPlay+loop, so 3 videos
+ * decoded simultaneously (even offscreen / on mobile), janking scroll.
+ */
+const ProjectVideo = ({
+  src,
+  title,
+  doubleSpeed = false,
+}: {
+  src: string;
+  title: string;
+  doubleSpeed?: boolean;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (doubleSpeed) el.playbackRate = 2.0;
+    // Respect reduced-motion: show poster frame only, never autoplay.
+    if (prefersReducedMotion()) {
+      el.pause();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            el.play().catch(() => {
+              /* autoplay blocked — user can tap to play */
+            });
+          } else {
+            el.pause();
+          }
+        });
+      },
+      { threshold: 0.25 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src, doubleSpeed]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      loop
+      muted
+      playsInline
+      preload="metadata"
+      disablePictureInPicture
+      aria-label={`${title} preview video`}
+      className="h-full w-full object-cover"
+      style={{ height: "100%" }}
+    />
+  );
+};
+
 const ProjectsSection = () => {
   return (
     <section className="py-16 sm:py-20 relative w-full overflow-hidden">
@@ -112,53 +175,38 @@ const ProjectsSection = () => {
         </div>
 
         {/* Projects Grid */}
-        <StaggerContainer className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-10" staggerDelay={0.12}>
+        <StaggerContainer className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-10 items-stretch" staggerDelay={0.12}>
           {projects.map((project) => (
-            <StaggerItem key={project.title} className="relative group">
-              <CardSpotlight className="relative overflow-hidden rounded-xl border border-white/[0.06] hover:border-white/[0.12] bg-[#0a0e16]/50 hover:bg-[#0a0e16]/65 backdrop-blur-2xl transition-all duration-500 z-0 glass-shine shadow-[0_8px_32px_rgba(0,0,0,0.16)] hover:shadow-[0_16px_48px_rgba(0,0,0,0.24),0_0_60px_rgba(245,158,11,0.03)]">
+            <StaggerItem key={project.title} className="relative group min-w-0 h-full">
+              <CardSpotlight className="relative flex h-full w-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/[0.06] hover:border-white/[0.12] bg-[#0a0e16]/50 hover:bg-[#0a0e16]/65 backdrop-blur-xl transition-all duration-500 glass-shine shadow-[0_8px_32px_rgba(0,0,0,0.16)] hover:shadow-[0_16px_48px_rgba(0,0,0,0.24),0_0_60px_rgba(245,158,11,0.03)] p-0">
                 {/* Project Image or Video */}
-                <div className="relative h-48 sm:h-56 md:h-64 mb-4 sm:mb-6 overflow-hidden rounded-lg z-10 border border-white/[0.04] mx-2 my-2">
+                <div className="project-media relative mx-3 mt-3 h-52 sm:h-60 md:h-64 overflow-hidden rounded-lg border border-white/[0.04]">
                   {project.isVideo ? (
-                    <div className="w-full h-full relative group-hover:opacity-90 transition-opacity duration-300 border border-white/10 shadow-inner shadow-black/50">
-                      <video 
-                        src={project.image} 
-                        autoPlay 
-                        loop 
-                        muted 
-                        playsInline
-                        className="object-cover w-full h-full"
-                        ref={(el) => {
-                          if (el && project.image.includes('basenft')) {
-                            el.playbackRate = 2.0;
-                          }
-                        }}
-                        onMouseEnter={(e) => {
-                          const video = e.target as HTMLVideoElement;
-                          if (video.paused) video.play();
-                          if (project.image.includes('basenft')) {
-                            video.playbackRate = 2.0;
-                          }
-                        }}
+                    <div className="w-full h-full relative" style={{ height: "100%" }}>
+                      <ProjectVideo
+                        src={project.image}
+                        title={project.title}
+                        doubleSpeed={project.image.includes("basenft")}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center">
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                      <div className="pointer-events-none absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center">
                         <span className="w-1.5 h-1.5 bg-red-500 rounded-full mr-1"></span>
                         Video
                       </div>
                     </div>
                   ) : project.image.startsWith('/') && !project.image.includes('placeholder') ? (
-                    <div className="w-full h-full relative group-hover:opacity-80 transition-opacity duration-300">
+                    <div className="w-full h-full relative" style={{ height: "100%" }}>
                       <Image 
                         src={project.image} 
                         alt={project.title}
                         fill
                         className="object-cover"
-                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        sizes="(max-width: 1024px) 100vw, 50vw"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                     </div>
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-amber-500/20 to-cyan-500/20 flex items-center justify-center">
+                    <div className="w-full h-full min-h-44 bg-gradient-to-br from-amber-500/20 to-cyan-500/20 flex items-center justify-center" style={{ minHeight: "11rem" }}>
                       {"badge" in project && project.badge ? (
                         <Trophy className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 text-amber-400 opacity-60" />
                       ) : project.title.includes("AISkool") ? (
@@ -176,49 +224,24 @@ const ProjectsSection = () => {
                       )}
                     </div>
                   )}
-                  <div className="absolute inset-0 z-40 flex items-center justify-center">
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform group-hover:translate-y-0 translate-y-4">
-                      <Button 
-                        size="sm" 
-                        className="bg-white text-black hover:bg-gray-200 text-xs sm:text-sm px-3 sm:px-4 py-2 shadow-md"
-                        onClick={() => {
-                          portfolioAnalytics.trackProjectView(project.title, 'demo');
-                          window.open(project.demoUrl, '_blank');
-                        }}
-                        disabled={project.demoUrl === "#"}
-                      >
-                        <ExternalLink className="w-3 h-3 mr-1" /> Live Demo
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        className="border-white text-white hover:bg-white/10 text-xs sm:text-sm px-3 sm:px-4 py-2 shadow-md"
-                        onClick={() => {
-                          portfolioAnalytics.trackProjectView(project.title, 'code');
-                          window.open(project.codeUrl, '_blank');
-                        }}
-                        disabled={project.codeUrl === "#"}
-                      >
-                        <Github className="w-3 h-3 mr-1" /> View Code
-                      </Button>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Project Content */}
-                <div className="space-y-3 sm:space-y-4 p-5 sm:p-7 relative z-20">
-                  <div className="flex items-start gap-2 flex-wrap">
-                    <h3 className="text-xl sm:text-2xl font-bold text-white group-hover:text-amber-300 transition-colors duration-300">
+                {/* Project Content — actions live here so they work on touch
+                    (the old hover-only overlay was unreachable on mobile and its
+                    invisible z-40 layer intercepted taps/scroll over the media). */}
+                <div className="flex flex-1 flex-col gap-3 sm:gap-4 p-4 sm:p-6">
+                  <div className="flex items-start gap-2 flex-wrap min-w-0">
+                    <h3 className="text-xl sm:text-2xl font-bold text-white break-words group-hover:text-amber-300 transition-colors duration-300">
                       {project.title}
                     </h3>
                     {"badge" in project && project.badge && (
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 mt-1">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 mt-1 shrink-0">
                         {project.badge}
                       </span>
                     )}
                   </div>
                   
-                  <p className="text-slate-400 leading-relaxed text-sm sm:text-base">
+                  <p className="text-slate-400 leading-relaxed text-sm sm:text-base break-words">
                     {project.description}
                   </p>
                   
@@ -226,11 +249,37 @@ const ProjectsSection = () => {
                     {project.tech.map((tech) => (
                       <span 
                         key={tech}
-                        className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-cyan-500/10 text-cyan-300 rounded-full border border-cyan-500/20 backdrop-blur-md"
+                        className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-cyan-500/10 text-cyan-300 rounded-full border border-cyan-500/20 backdrop-blur-md break-words"
                       >
                         {tech}
                       </span>
                     ))}
+                  </div>
+
+                  <div className="flex flex-col min-[420px]:flex-row gap-3 pt-2 mt-auto">
+                    <Button 
+                      size="sm" 
+                      className="flex-1 bg-white text-black hover:bg-gray-200 text-sm px-4 py-2.5 min-h-11 shadow-md"
+                      onClick={() => {
+                        portfolioAnalytics.trackProjectView(project.title, 'demo');
+                        window.open(project.demoUrl, '_blank');
+                      }}
+                      disabled={project.demoUrl === "#"}
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1.5 shrink-0" /> Live Demo
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1 border-white/20 text-white hover:bg-white/10 text-sm px-4 py-2.5 min-h-11 shadow-md"
+                      onClick={() => {
+                        portfolioAnalytics.trackProjectView(project.title, 'code');
+                        window.open(project.codeUrl, '_blank');
+                      }}
+                      disabled={project.codeUrl === "#"}
+                    >
+                      <Github className="w-4 h-4 mr-1.5 shrink-0" /> View Code
+                    </Button>
                   </div>
                 </div>
               </CardSpotlight>

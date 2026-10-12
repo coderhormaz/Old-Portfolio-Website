@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Navigation from "@/components/layout/Navigation";
 import HeroSection from "@/components/sections/HeroSection";
 import AboutSection from "@/components/sections/AboutSection";
@@ -14,9 +14,23 @@ import { portfolioAnalytics, useScrollTracking } from "@/lib/analytics";
 export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
 
-  const handlePreloaderComplete = () => {
+  const handlePreloaderComplete = useCallback(() => {
     setIsLoading(false);
-  };
+  }, []);
+
+  // Lock background scroll while the preloader is visible and always
+  // restore it afterwards. The failsafe guarantees the page can never get
+  // stuck behind the preloader (a previous "unable to scroll" cause).
+  useEffect(() => {
+    if (!isLoading || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const failsafe = setTimeout(() => setIsLoading(false), 4000);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      clearTimeout(failsafe);
+    };
+  }, [isLoading]);
 
   // Set up scroll tracking for analytics
   useScrollTracking();

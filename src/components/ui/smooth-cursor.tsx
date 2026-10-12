@@ -1,7 +1,7 @@
 "use client";
 
-import { motion, useSpring } from "framer-motion";
-import { FC, JSX, useEffect, useRef, useState } from "react";
+import { motion, useMotionValue, useSpring } from "framer-motion";
+import { FC, JSX, useEffect, useState } from "react";
 
 interface Position {
   x: number;
@@ -89,155 +89,89 @@ export function SmoothCursor({
     restDelta: 0.001,
   },
 }: SmoothCursorProps) {
-  // State to track cursor movement status (not currently used but might be needed for future features)
-  const [, setIsMoving] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(false);
-  const lastMousePos = useRef<Position>({ x: 0, y: 0 });
-  const velocity = useRef<Position>({ x: 0, y: 0 });
-  const lastUpdateTime = useRef(Date.now());
-  const previousAngle = useRef(0);
-  const accumulatedRotation = useRef(0);
+  const [enabled, setEnabled] = useState(false);
+  const [hasMoved, setHasMoved] = useState(false);
 
-  const cursorX = useSpring(0, springConfig);
-  const cursorY = useSpring(0, springConfig);
-  const rotation = useSpring(0, {
-    ...springConfig,
-    damping: 60,
-    stiffness: 300,
-  });
-  const scale = useSpring(1, {
-    ...springConfig,
-    stiffness: 500,
-    damping: 35,
-  });
-  
-  // Early return optimization - prevent unnecessary computations on mobile
-  const isTouchDevice = () => {
-    return (('ontouchstart' in window) ||
-      (navigator.maxTouchPoints > 0) ||
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (navigator as any).msMaxTouchPoints > 0);
-  };
+  // Raw motion values updated directly — no React re-render per mousemove.
+  const rawX = useMotionValue(-100);
+  const rawY = useMotionValue(-100);
+  const cursorX = useSpring(rawX, springConfig);
+  const cursorY = useSpring(rawY, springConfig);
 
-  // Check if the device is desktop (not mobile)
+  // Only enable on fine-pointer desktop devices with no reduced-motion
+  // preference. The native cursor is intentionally left untouched
+  // (no `cursor: none`) so it can never "vanish" — this is a decorative
+  // follower, not a replacement.
   useEffect(() => {
-    // Function to check if the screen is desktop size AND not a touch device
-    const checkIfDesktop = () => {
-      const isLargeScreen = window.innerWidth >= 1024;
-      const isNotTouch = !isTouchDevice();
-      
-      // Only show cursor on large screens that aren't touch devices
-      setIsDesktop(isLargeScreen && isNotTouch);
+    if (typeof window === "undefined") return;
+
+    const finePointer = window.matchMedia("(pointer: fine)");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    const check = () => {
+      setEnabled(
+        finePointer.matches &&
+          !reducedMotion.matches &&
+          window.innerWidth >= 1024
+      );
     };
 
-    // Check on mount
-    checkIfDesktop();
+    check();
+    window.addEventListener("resize", check);
+    finePointer.addEventListener?.("change", check);
+    reducedMotion.addEventListener?.("change", check);
 
-    // Listen for resize events
-    window.addEventListener('resize', checkIfDesktop);
-    
     return () => {
-      window.removeEventListener('resize', checkIfDesktop);
+      window.removeEventListener("resize", check);
+      finePointer.removeEventListener?.("change", check);
+      reducedMotion.removeEventListener?.("change", check);
     };
   }, []);
 
   useEffect(() => {
-    // Only apply cursor effects on desktop devices
-    if (!isDesktop) return;
-    
-    const updateVelocity = (currentPos: Position) => {
-      const currentTime = Date.now();
-      const deltaTime = currentTime - lastUpdateTime.current;
+    if (!enabled) return;
 
-      if (deltaTime > 0) {
-        velocity.current = {
-          x: (currentPos.x - lastMousePos.current.x) / deltaTime,
-          y: (currentPos.y - lastMousePos.current.y) / deltaTime,
-        };
-      }
+    let rafId = 0;
+    let pending: Position | null = null;
 
-      lastUpdateTime.current = currentTime;
-      lastMousePos.current = currentPos;
-    };
-
-    const smoothMouseMove = (e: MouseEvent) => {
-      const currentPos = { x: e.clientX, y: e.clientY };
-      updateVelocity(currentPos);
-
-      const speed = Math.sqrt(
-        Math.pow(velocity.current.x, 2) + Math.pow(velocity.current.y, 2),
-      );
-
-      cursorX.set(currentPos.x);
-      cursorY.set(currentPos.y);
-
-      if (speed > 0.1) {
-        const currentAngle =
-          Math.atan2(velocity.current.y, velocity.current.x) * (180 / Math.PI) +
-          90;
-
-        let angleDiff = currentAngle - previousAngle.current;
-        if (angleDiff > 180) angleDiff -= 360;
-        if (angleDiff < -180) angleDiff += 360;
-        accumulatedRotation.current += angleDiff;
-        rotation.set(accumulatedRotation.current);
-        previousAngle.current = currentAngle;
-
-        scale.set(0.95);
-        setIsMoving(true);
-
-        const timeout = setTimeout(() => {
-          scale.set(1);
-          setIsMoving(false);
-        }, 150);
-
-        return () => clearTimeout(timeout);
-      }
-    };
-
-    let rafId: number;
-    const throttledMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: MouseEvent) => {
+      pending = { x: e.clientX, y: e.clientY };
       if (rafId) return;
-
       rafId = requestAnimationFrame(() => {
-        smoothMouseMove(e);
         rafId = 0;
+        if (pending) {
+          rawX.set(pending.x);
+          rawY.set(pending.y);
+          setHasMoved(true);
+        }
       });
     };
 
-    document.body.style.cursor = "none";
-    window.addEventListener("mousemove", throttledMouseMove);
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
 
     return () => {
-      window.removeEventListener("mousemove", throttledMouseMove);
-      document.body.style.cursor = "auto";
+      window.removeEventListener("mousemove", onMouseMove);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [cursorX, cursorY, rotation, scale, isDesktop]);
+  }, [enabled, rawX, rawY]);
 
-  // Only render the cursor on desktop devices
-  if (!isDesktop) return null;
-  
+  if (!enabled) return null;
+
   return (
     <motion.div
+      aria-hidden
       style={{
         position: "fixed",
-        left: cursorX,
-        top: cursorY,
+        left: 0,
+        top: 0,
+        x: cursorX,
+        y: cursorY,
         translateX: "-50%",
         translateY: "-50%",
-        rotate: rotation,
-        scale: scale,
         zIndex: 100,
         pointerEvents: "none",
+        opacity: hasMoved ? 1 : 0,
         willChange: "transform",
-      }}
-      initial={{ scale: 0 }}
-      animate={{ scale: 1 }}
-      transition={{
-        type: "spring",
-        stiffness: 400,
-        damping: 30,
       }}
     >
       {cursor}

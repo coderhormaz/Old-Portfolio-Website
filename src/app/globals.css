@@ -384,10 +384,28 @@ html, body {
   }
 }
 
-/* Ensure images and media are responsive */
-img, video, iframe {
+/* Ensure images and media are responsive.
+   NOTE: `height: auto` is scoped to images only — applying it to <video>
+   broke `h-full` cover media in project cards (heights collapsed). */
+img {
   max-width: 100%;
   height: auto;
+}
+
+video, iframe {
+  max-width: 100%;
+}
+
+video.h-full,
+.project-media video,
+.project-media img {
+  height: 100%;
+}
+
+/* Allow vertical scrolling for gestures starting on 3D canvases */
+.touch-pan-y,
+.touch-pan-y canvas {
+  touch-action: pan-y !important;
 }
 
 /* Prevent text overflow */
